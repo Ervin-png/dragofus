@@ -395,6 +395,7 @@
           <button type="button" class="stat-btn" data-stat="xp"><span class="stat-icon">📖</span>XP</button>
         </div>
         <div class="stat-hint" id="stat-hint">⚡ Aucun objet sérénité actif → max 2 stats sélectionnables</div>
+        <div class="stat-inputs-box" id="stat-inputs-box" style="display:none; flex-direction:column; gap:8px; margin-top:12px;"></div>
       </div>
     </section>
 
@@ -430,7 +431,7 @@
       </div>
     </section>
   </div>
-  <footer class="footer">Dragofus — Outil communautaire · Inspiré par <a href="https://duffus.fr" target="_blank" rel="noopener">duffus.fr</a></footer>
+  <footer class="footer">Dragofus — Outil communautaire pour l'élevage de montures</footer>
 
   <script>
   (()=>{
@@ -440,14 +441,14 @@
     const $=s=>document.querySelector(s);
     const tabBar=$('#tab-bar'),fuelIn=$('#fuel-input'),fuelFill=$('#fuel-fill'),speedChip=$('#speed-chip'),
       speedText=$('#speed-text'),tierNameEl=$('#tier-name'),btnUp=$('#btn-up'),btnDown=$('#btn-down'),
-      serenMinIn=$('#seren-min'),serenMaxIn=$('#seren-max'),errMM=$('#err-mm'),statHint=$('#stat-hint'),
+      serenMinIn=$('#seren-min'),serenMaxIn=$('#seren-max'),errMM=$('#err-mm'),statHint=$('#stat-hint'),statInputsBox=$('#stat-inputs-box'),
       timerVal=$('#timer-val'),timerStat=$('#timer-status'),resTime=$('#res-time'),
       resTics=$('#res-tics'),resEnd=$('#res-end'),warnBan=$('#warn-banner'),warnText=$('#warn-text'),
       btnPlay=$('#btn-play'),btnPause=$('#btn-pause'),btnStop=$('#btn-stop'),pauseIcon=$('#pause-icon'),
       mkMin=$('#mk-min'),mkMax=$('#mk-max'),hatchEl=$('#hatch'),statBtns=document.querySelectorAll('.stat-btn');
 
     let activeIdx=0,audioCtx=null,globalTick=null;
-    function makeEnclos(){return ENCLOS.map(()=>({fuel:'',dirMode:'none',serenMin:'',serenMax:'',stats:[],totalSec:0,tmr:{running:false,paused:false,endTs:null,remainMs:null},snap:{mn:0,mx:0,speed:0,totalMs:0,startTs:0}}))}
+    function makeEnclos(){return ENCLOS.map(()=>({fuel:'',dirMode:'none',serenMin:'',serenMax:'',stats:[],statVals:{endurance:0,maturite:0,amour:0,xp:0},totalSec:0,tmr:{running:false,paused:false,endTs:null,remainMs:null},snap:{mn:0,mx:0,initialFuel:0,speed:0,totalMs:0,startTs:0}}))}
     let enclos=makeEnclos();
 
     const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
@@ -455,6 +456,20 @@
     function fmt(sec){const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=sec%60;return`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;}
     function fmtEnd(d){return`${d.getHours()}h${String(d.getMinutes()).padStart(2,'0')}m${String(d.getSeconds()).padStart(2,'0')}s`;}
     function pct(v){return((v+5000)/10000)*100;}
+
+    function calcTicksWithFuel(neededPoints, startFuel) {
+      if (neededPoints <= 0) return 0;
+      let remaining = neededPoints;
+      let fuel = Math.max(0, startFuel);
+      let ticks = 0;
+      while (remaining > 0 && ticks < 100000) {
+        const speed = tierInfo(fuel).speed;
+        remaining -= speed;
+        fuel = Math.max(0, fuel - 10);
+        ticks++;
+      }
+      return ticks;
+    }
 
     function buildTabs(){tabBar.innerHTML='';ENCLOS.forEach((e,i)=>{const b=document.createElement('button');b.className='tab'+(i===activeIdx?' active':'');b.dataset.idx=i;b.innerHTML=`<span class="tab-dot" id="tdot-${i}"></span><span class="tab-name">${e.name}</span><span class="tab-num">Lv.${e.lv}</span><span class="tab-time" id="ttime-${i}"></span>`;b.addEventListener('click',()=>switchTab(i));tabBar.appendChild(b);});}
 
@@ -468,21 +483,133 @@
 
     function enforceStatLimit(maxAllowed){const activeBtns=[...statBtns].filter(b=>b.classList.contains('on-'+b.dataset.stat));while(activeBtns.length>maxAllowed){const popped=activeBtns.shift();popped.classList.remove('on-'+popped.dataset.stat);}}
 
-    function loadForm(idx){const e=enclos[idx];fuelIn.value=e.fuel;serenMinIn.value=e.serenMin;serenMaxIn.value=e.serenMax;btnUp.classList.toggle('on-up',e.dirMode==='up');btnDown.classList.toggle('on-down',e.dirMode==='down');statBtns.forEach(b=>b.classList.remove('on-endurance','on-maturite','on-amour','on-xp'));(e.stats||[]).forEach(s=>{const b=document.querySelector(`.stat-btn[data-stat="${s}"]`);if(b)b.classList.add('on-'+s);});updStatHint();updFuelUI();updMarkers();calcE(idx);updTimerUI(idx);}
+    function renderStatInputs(){
+      if(!statInputsBox)return;
+      const e=enclos[activeIdx];
+      const activeStats=e.stats||[];
+      if(activeStats.length===0){
+        statInputsBox.style.display='none';
+        statInputsBox.innerHTML='';
+        return;
+      }
+      statInputsBox.style.display='flex';
+      const meta={
+        endurance:{label:'⚡ Endurance (la plus basse)',color:'var(--endurance)'},
+        maturite:{label:'💧 Maturité (la plus basse)',color:'var(--maturity)'},
+        amour:{label:'❤️ Amour (la plus basse)',color:'var(--love)'},
+        xp:{label:'📖 XP / Niveau (la plus basse)',color:'var(--accent)'}
+      };
+      if(!e.statVals)e.statVals={endurance:0,maturite:0,amour:0,xp:0};
+      let html='';
+      activeStats.forEach(s=>{
+        const m=meta[s]||{label:s,color:'var(--text)'};
+        const val=e.statVals[s]!==undefined?e.statVals[s]:0;
+        html+=`
+          <div style="background:var(--bg-card-raised); border:1px solid var(--border); border-radius:var(--radius-sm); padding:8px 10px;">
+            <div style="font-size:0.65rem; font-weight:700; color:${m.color}; margin-bottom:4px; text-transform:uppercase;">${m.label}</div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <input type="number" class="input stat-val-input" data-stat="${s}" min="0" max="10000" placeholder="0 – 10 000" value="${val}" style="padding:6px 10px; font-size:0.85rem;" />
+              <span style="font-size:0.7rem; font-weight:700; color:var(--text-muted); white-space:nowrap;">/ 10 000</span>
+            </div>
+          </div>
+        `;
+      });
+      statInputsBox.innerHTML=html;
+      statInputsBox.querySelectorAll('.stat-val-input').forEach(inp=>{
+        inp.addEventListener('input',evt=>{
+          const st=evt.target.dataset.stat;
+          const v=Math.max(0,Math.min(10000,parseInt(evt.target.value)||0));
+          enclos[activeIdx].statVals[st]=v;
+          calcE(activeIdx);
+          save();
+        });
+      });
+    }
 
-    function updFuelUI(){const f=clamp(parseInt(fuelIn.value)||0,0,100000),info=tierInfo(f);fuelFill.style.width=(f/100000*100)+'%';fuelFill.className='fuel-fill '+info.css;speedChip.className='speed-chip '+info.css;speedText.textContent=`±${info.speed} / 10s`;tierNameEl.textContent=info.name;document.querySelectorAll('.fuel-ticks span').forEach((el,i)=>{el.classList.toggle('active',f>=[0,40000,70000,90000,100000][i]);});}
+    function loadForm(idx){const e=enclos[idx];fuelIn.value=e.fuel;serenMinIn.value=e.serenMin;serenMaxIn.value=e.serenMax;btnUp.classList.toggle('on-up',e.dirMode==='up');btnDown.classList.toggle('on-down',e.dirMode==='down');statBtns.forEach(b=>b.classList.remove('on-endurance','on-maturite','on-amour','on-xp'));(e.stats||[]).forEach(s=>{const b=document.querySelector(`.stat-btn[data-stat="${s}"]`);if(b)b.classList.add('on-'+s);});updStatHint();renderStatInputs();updFuelUI();updMarkers();calcE(idx);updTimerUI(idx);}
+
+    function updFuelUI(customFuel){const f=clamp(customFuel!==undefined?customFuel:(parseInt(fuelIn.value)||0),0,100000),info=tierInfo(f);fuelFill.style.width=(f/100000*100)+'%';fuelFill.className='fuel-fill '+info.css;speedChip.className='speed-chip '+info.css;speedText.textContent=`±${info.speed} / 10s`;tierNameEl.textContent=info.name;document.querySelectorAll('.fuel-ticks span').forEach((el,i)=>{el.classList.toggle('active',f>=[0,40000,70000,90000,100000][i]);});}
 
     function updMarkers(mnO,mxO){const mn=mnO!==undefined?mnO:clamp(parseInt(serenMinIn.value)||-5000,-5000,5000),mx=mxO!==undefined?mxO:clamp(parseInt(serenMaxIn.value)||5000,-5000,5000);mkMin.style.left=pct(mn)+'%';mkMax.style.left=pct(mx)+'%';mkMin.querySelector('.mk-pip').textContent=`Min ${mn}`;mkMax.querySelector('.mk-pip').textContent=`Max ${mx}`;const mnV=mnO!==undefined?mnO:parseInt(serenMinIn.value),mxV=mxO!==undefined?mxO:parseInt(serenMaxIn.value);if(!isNaN(mnV)&&!isNaN(mxV)&&mnV<=mxV&&mnV>=-5000&&mxV<=5000){hatchEl.style.left=pct(mnV)+'%';hatchEl.style.width=(pct(mxV)-pct(mnV))+'%';hatchEl.classList.add('visible');}else{hatchEl.classList.remove('visible');}}
 
     function validate(){const mn=parseInt(serenMinIn.value),mx=parseInt(serenMaxIn.value),f=parseInt(fuelIn.value);const mnOk=!isNaN(mn)&&mn>=-5000&&mn<=5000,mxOk=!isNaN(mx)&&mx>=-5000&&mx<=5000,fOk=!isNaN(f)&&f>=0&&f<=100000,ordOk=!mnOk||!mxOk||mn<=mx;errMM.classList.toggle('visible',mnOk&&mxOk&&!ordOk);return mnOk&&mxOk&&fOk&&ordOk;}
 
-    function calcE(idx){const e=enclos[idx];if(!validate()){resetRes(idx);return;}const fuel=clamp(parseInt(fuelIn.value)||0,0,100000),mn=parseInt(serenMinIn.value),mx=parseInt(serenMaxIn.value),speed=tierInfo(fuel).speed;let tics=0,need=false,showW=false,wMsg='';if(e.dirMode==='up'){if(mn<-2000){tics=Math.ceil((-2000-mn)/speed);need=true;const nM=mx+tics*speed;if(nM>2000){showW=true;wMsg=`Sérénité max → ${nM>5000?'>5000':nM} pts (hors zone).`;}}}else if(e.dirMode==='down'){if(mx>2000){tics=Math.ceil((mx-2000)/speed);need=true;const nM=mn-tics*speed;if(nM<-2000){showW=true;wMsg=`Sérénité min → ${nM<-5000?'<-5000':nM} pts (hors zone).`;}}}if(need&&tics>0){e.totalSec=tics*10;const end=new Date(Date.now()+e.totalSec*1000);if(idx===activeIdx){resTime.textContent=fmt(e.totalSec);resTics.textContent=tics;resEnd.textContent=fmtEnd(end);if(!e.tmr.running)timerVal.textContent=fmt(e.totalSec);btnPlay.disabled=e.tmr.running;}}else{e.totalSec=0;if(idx===activeIdx){resTime.textContent='00:00:00';resTics.textContent='0';resEnd.textContent='—';if(!e.tmr.running){timerVal.textContent='00:00:00';btnPlay.disabled=true;}}}if(idx===activeIdx){warnBan.classList.toggle('visible',showW);if(showW)warnText.textContent=wMsg;}}
+    function calcE(idx){
+      const e=enclos[idx];
+      if(!validate()){resetRes(idx);return;}
+      const fuel=clamp(parseInt(fuelIn.value)||0,0,100000),mn=parseInt(serenMinIn.value),mx=parseInt(serenMaxIn.value);
+      let maxTicks=0,showW=false,wMsg='';
+
+      if(e.dirMode==='up'){
+        if(!isNaN(mn)&&mn<-2000){
+          const needSeren=-2000-mn;
+          const tics=calcTicksWithFuel(needSeren,fuel);
+          if(tics>maxTicks)maxTicks=tics;
+          const speedStart=tierInfo(fuel).speed;
+          const approxMax=mx+(needSeren);
+          if(!isNaN(mx)&&approxMax>2000){showW=true;wMsg=`Sérénité max → ${approxMax>5000?'>5000':approxMax} pts (hors zone).`;}
+        }
+      }else if(e.dirMode==='down'){
+        if(!isNaN(mx)&&mx>2000){
+          const needSeren=mx-2000;
+          const tics=calcTicksWithFuel(needSeren,fuel);
+          if(tics>maxTicks)maxTicks=tics;
+          const approxMin=mn-(needSeren);
+          if(!isNaN(mn)&&approxMin<-2000){showW=true;wMsg=`Sérénité min → ${approxMin<-5000?'<-5000':approxMin} pts (hors zone).`;}
+        }
+      }
+
+      if(!e.statVals)e.statVals={endurance:0,maturite:0,amour:0,xp:0};
+      (e.stats||[]).forEach(s=>{
+        const curV=e.statVals[s]!==undefined?e.statVals[s]:0;
+        const needPts=10000-curV;
+        if(needPts>0){
+          const tics=calcTicksWithFuel(needPts,fuel);
+          if(tics>maxTicks)maxTicks=tics;
+        }
+      });
+
+      if(maxTicks>0){
+        e.totalSec=maxTicks*10;
+        const end=new Date(Date.now()+e.totalSec*1000);
+        if(idx===activeIdx){
+          resTime.textContent=fmt(e.totalSec);
+          resTics.textContent=maxTicks;
+          resEnd.textContent=fmtEnd(end);
+          if(!e.tmr.running)timerVal.textContent=fmt(e.totalSec);
+          btnPlay.disabled=e.tmr.running;
+        }
+      }else{
+        e.totalSec=0;
+        if(idx===activeIdx){
+          resTime.textContent='00:00:00';
+          resTics.textContent='0';
+          resEnd.textContent='—';
+          if(!e.tmr.running){
+            timerVal.textContent='00:00:00';
+            btnPlay.disabled=true;
+          }
+        }
+      }
+      if(idx===activeIdx){
+        warnBan.classList.toggle('visible',showW);
+        if(showW)warnText.textContent=wMsg;
+      }
+    }
 
     function resetRes(idx){enclos[idx].totalSec=0;if(idx===activeIdx){resTime.textContent='--:--:--';resTics.textContent='—';resEnd.textContent='—';warnBan.classList.remove('visible');if(!enclos[idx].tmr.running){timerVal.textContent='00:00:00';btnPlay.disabled=true;}}}
 
     function updTimerUI(idx){const e=enclos[idx];if(idx!==activeIdx)return;if(e.tmr.running&&!e.tmr.paused){timerVal.classList.add('running');timerVal.classList.remove('done');timerStat.textContent='En cours…';btnPlay.disabled=true;btnPause.disabled=false;btnStop.disabled=false;pauseIcon.textContent='⏸';}else if(e.tmr.running&&e.tmr.paused){timerVal.classList.remove('running','done');timerStat.textContent='Pause';btnPlay.disabled=true;btnPause.disabled=false;btnStop.disabled=false;pauseIcon.textContent='▶';}else{timerVal.classList.remove('running','done');timerStat.textContent='En attente';btnPlay.disabled=e.totalSec<=0;btnPause.disabled=true;btnStop.disabled=true;pauseIcon.textContent='⏸';}}
 
-    function startGlobal(){if(globalTick)return;globalTick=setInterval(()=>{enclos.forEach((e,i)=>{if(!e.tmr.running||e.tmr.paused)return;const rem=Math.max(0,e.tmr.endTs-Date.now());if(i===activeIdx){timerVal.textContent=fmt(Math.ceil(rem/1000));updGaugeLive(e);}updBadge(i,rem);if(rem<=0)finishE(i);});},250);}
+    function startGlobal(){if(globalTick)return;globalTick=setInterval(()=>{enclos.forEach((e,i)=>{if(!e.tmr.running||e.tmr.paused)return;const rem=Math.max(0,e.tmr.endTs-Date.now());if(i===activeIdx){timerVal.textContent=fmt(Math.ceil(rem/1000));updGaugeLive(e);updLiveFuel(e);}updBadge(i,rem);if(rem<=0)finishE(i);});},250);}
+
+    function updLiveFuel(e){
+      if(!e.tmr.running)return;
+      const elapsedSec=Math.floor((e.snap.totalMs-(e.tmr.paused?e.tmr.remainMs:Math.max(0,e.tmr.endTs-Date.now())))/1000);
+      const elapsedTicks=Math.floor(elapsedSec/10);
+      const liveFuel=Math.max(0,(e.snap.initialFuel||0)-elapsedTicks*10);
+      updFuelUI(liveFuel);
+    }
 
     function updBadge(idx,remMs){const dot=$(`#tdot-${idx}`),tt=$(`#ttime-${idx}`),e=enclos[idx];if(!e.tmr.running){dot.className='tab-dot';tt.className='tab-time';return;}if(e.tmr.paused){dot.className='tab-dot paused';tt.textContent=fmt(Math.ceil((e.tmr.remainMs||0)/1000));tt.className='tab-time visible paused-c';}else{dot.className='tab-dot running';tt.textContent=fmt(Math.ceil(remMs/1000));tt.className='tab-time visible';}}
 
@@ -490,13 +617,13 @@
 
     function resetGauge(){mkMin.classList.remove('notrans');mkMax.classList.remove('notrans');hatchEl.classList.remove('notrans');updMarkers();}
 
-    function startE(idx){const e=enclos[idx];if(e.totalSec<=0)return;if('Notification'in window&&Notification.permission==='default')Notification.requestPermission();getAudio();e.snap={mn:parseInt(serenMinIn.value)||0,mx:parseInt(serenMaxIn.value)||0,speed:tierInfo(clamp(parseInt(fuelIn.value)||0,0,100000)).speed,totalMs:e.totalSec*1000,startTs:Date.now()};e.tmr={running:true,paused:false,endTs:Date.now()+e.totalSec*1000,remainMs:null};updTimerUI(idx);startGlobal();save();}
+    function startE(idx){const e=enclos[idx];if(e.totalSec<=0)return;if('Notification'in window&&Notification.permission==='default')Notification.requestPermission();getAudio();const f=clamp(parseInt(fuelIn.value)||0,0,100000);e.snap={mn:parseInt(serenMinIn.value)||0,mx:parseInt(serenMaxIn.value)||0,initialFuel:f,speed:tierInfo(f).speed,totalMs:e.totalSec*1000,startTs:Date.now()};e.tmr={running:true,paused:false,endTs:Date.now()+e.totalSec*1000,remainMs:null};updTimerUI(idx);startGlobal();save();}
 
     function pauseE(idx){const e=enclos[idx];if(!e.tmr.running)return;if(!e.tmr.paused){e.tmr.paused=true;e.tmr.remainMs=Math.max(0,e.tmr.endTs-Date.now());}else{e.tmr.paused=false;e.snap.startTs=Date.now()-(e.snap.totalMs-e.tmr.remainMs);e.tmr.endTs=Date.now()+e.tmr.remainMs;e.tmr.remainMs=null;}updTimerUI(idx);updBadge(idx,e.tmr.remainMs||0);save();}
 
-    function stopE(idx){const e=enclos[idx];e.tmr={running:false,paused:false,endTs:null,remainMs:null};if(idx===activeIdx){timerVal.textContent=e.totalSec>0?fmt(e.totalSec):'00:00:00';timerStat.textContent='Arrêté';resetGauge();}updTimerUI(idx);updBadge(idx,0);save();}
+    function stopE(idx){const e=enclos[idx];e.tmr={running:false,paused:false,endTs:null,remainMs:null};if(idx===activeIdx){timerVal.textContent=e.totalSec>0?fmt(e.totalSec):'00:00:00';timerStat.textContent='Arrêté';resetGauge();updFuelUI();}updTimerUI(idx);updBadge(idx,0);save();}
 
-    function finishE(idx){const e=enclos[idx];e.tmr={running:false,paused:false,endTs:null,remainMs:null};const dot=$(`#tdot-${idx}`),tt=$(`#ttime-${idx}`);dot.className='tab-dot done';tt.className='tab-time visible';tt.textContent='Fini !';tt.style.color='var(--accent)';setTimeout(()=>{dot.className='tab-dot';tt.className='tab-time';tt.style.color='';},15000);if(idx===activeIdx){timerVal.textContent='00:00:00';timerVal.classList.remove('running');timerVal.classList.add('done');timerStat.textContent='✓ Terminé !';updGaugeLive(e);btnPlay.disabled=e.totalSec<=0;btnPause.disabled=true;btnStop.disabled=true;pauseIcon.textContent='⏸';}playSound();notify(idx);save();}
+    function finishE(idx){const e=enclos[idx];e.tmr={running:false,paused:false,endTs:null,remainMs:null};const dot=$(`#tdot-${idx}`),tt=$(`#ttime-${idx}`);dot.className='tab-dot done';tt.className='tab-time visible';tt.textContent='Fini !';tt.style.color='var(--accent)';setTimeout(()=>{dot.className='tab-dot';tt.className='tab-time';tt.style.color='';},15000);if(idx===activeIdx){timerVal.textContent='00:00:00';timerVal.classList.remove('running');timerVal.classList.add('done');timerStat.textContent='✓ Terminé !';updGaugeLive(e);updFuelUI();btnPlay.disabled=e.totalSec<=0;btnPause.disabled=true;btnStop.disabled=true;pauseIcon.textContent='⏸';}playSound();notify(idx);save();}
 
     function getAudio(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();return audioCtx;}
     function playSound(){try{const c=getAudio(),n=c.currentTime;[{f:587.33,d:0},{f:739.99,d:.18},{f:880,d:.36},{f:1174.66,d:.54}].forEach(({f,d})=>{const o=c.createOscillator(),g=c.createGain();o.type='sine';o.frequency.value=f;g.gain.setValueAtTime(0,n+d);g.gain.linearRampToValueAtTime(.25,n+d+.04);g.gain.exponentialRampToValueAtTime(.001,n+d+1.2);o.connect(g).connect(c.destination);o.start(n+d);o.stop(n+d+1.3);});setTimeout(()=>{const n2=c.currentTime;[587.33,880,1174.66].forEach((f,i)=>{const o=c.createOscillator(),g=c.createGain();o.type='triangle';o.frequency.value=f;g.gain.setValueAtTime(.15,n2+i*.12);g.gain.exponentialRampToValueAtTime(.001,n2+i*.12+1.8);o.connect(g).connect(c.destination);o.start(n2+i*.12);o.stop(n2+i*.12+2);});},900);}catch(_){}}
@@ -507,17 +634,17 @@
     function onInput(){saveForm(activeIdx);updFuelUI();updMarkers();calcE(activeIdx);save();}
     fuelIn.addEventListener('input',onInput);serenMinIn.addEventListener('input',onInput);serenMaxIn.addEventListener('input',onInput);
     
-    btnUp.addEventListener('click',()=>{if(btnUp.classList.contains('on-up')){btnUp.classList.remove('on-up');enclos[activeIdx].dirMode='none';}else{btnUp.classList.add('on-up');btnDown.classList.remove('on-down');enclos[activeIdx].dirMode='up';enforceStatLimit(1);}saveForm(activeIdx);updStatHint();calcE(activeIdx);save();});
-    btnDown.addEventListener('click',()=>{if(btnDown.classList.contains('on-down')){btnDown.classList.remove('on-down');enclos[activeIdx].dirMode='none';}else{btnDown.classList.add('on-down');btnUp.classList.remove('on-up');enclos[activeIdx].dirMode='down';enforceStatLimit(1);}saveForm(activeIdx);updStatHint();calcE(activeIdx);save();});
+    btnUp.addEventListener('click',()=>{if(btnUp.classList.contains('on-up')){btnUp.classList.remove('on-up');enclos[activeIdx].dirMode='none';}else{btnUp.classList.add('on-up');btnDown.classList.remove('on-down');enclos[activeIdx].dirMode='up';enforceStatLimit(1);}saveForm(activeIdx);updStatHint();renderStatInputs();calcE(activeIdx);save();});
+    btnDown.addEventListener('click',()=>{if(btnDown.classList.contains('on-down')){btnDown.classList.remove('on-down');enclos[activeIdx].dirMode='none';}else{btnDown.classList.add('on-down');btnUp.classList.remove('on-up');enclos[activeIdx].dirMode='down';enforceStatLimit(1);}saveForm(activeIdx);updStatHint();renderStatInputs();calcE(activeIdx);save();});
     
-    statBtns.forEach(b=>b.addEventListener('click',()=>{toggleStat(b);saveForm(activeIdx);save();}));
+    statBtns.forEach(b=>b.addEventListener('click',()=>{toggleStat(b);saveForm(activeIdx);renderStatInputs();calcE(activeIdx);save();}));
     btnPlay.addEventListener('click',()=>startE(activeIdx));
     btnPause.addEventListener('click',()=>pauseE(activeIdx));
     btnStop.addEventListener('click',()=>stopE(activeIdx));
 
-    function save(){saveForm(activeIdx);const data={activeIdx,enclos:enclos.map(e=>({fuel:e.fuel,dirMode:e.dirMode,serenMin:e.serenMin,serenMax:e.serenMax,stats:e.stats,totalSec:e.totalSec,tmr:{running:e.tmr.running,paused:e.tmr.paused,endTs:e.tmr.endTs,remainMs:e.tmr.remainMs}}))};localStorage.setItem(STORE_KEY,JSON.stringify(data));}
+    function save(){saveForm(activeIdx);const data={activeIdx,enclos:enclos.map(e=>({fuel:e.fuel,dirMode:e.dirMode,serenMin:e.serenMin,serenMax:e.serenMax,stats:e.stats,statVals:e.statVals,totalSec:e.totalSec,tmr:{running:e.tmr.running,paused:e.tmr.paused,endTs:e.tmr.endTs,remainMs:e.tmr.remainMs}}))};localStorage.setItem(STORE_KEY,JSON.stringify(data));}
 
-    function load(){try{const raw=localStorage.getItem(STORE_KEY);if(!raw)return;const data=JSON.parse(raw);activeIdx=data.activeIdx||0;data.enclos.forEach((d,i)=>{if(!enclos[i])return;enclos[i].fuel=d.fuel||'';enclos[i].dirMode=d.dirMode||(d.dirUp!==undefined?(d.dirUp?'up':'down'):'none');enclos[i].serenMin=d.serenMin||'';enclos[i].serenMax=d.serenMax||'';enclos[i].stats=d.stats||[];enclos[i].totalSec=d.totalSec||0;if(d.tmr){enclos[i].tmr={running:!!d.tmr.running,paused:!!d.tmr.paused,endTs:d.tmr.endTs||null,remainMs:d.tmr.remainMs||null};if(enclos[i].tmr.running){const fuel=clamp(parseInt(enclos[i].fuel)||0,0,100000);enclos[i].snap={mn:parseInt(enclos[i].serenMin)||0,mx:parseInt(enclos[i].serenMax)||0,speed:tierInfo(fuel).speed,totalMs:enclos[i].totalSec*1000,startTs:enclos[i].tmr.paused?Date.now():(enclos[i].tmr.endTs-enclos[i].totalSec*1000)};if(!enclos[i].tmr.paused&&enclos[i].tmr.endTs&&Date.now()>=enclos[i].tmr.endTs){enclos[i].tmr={running:false,paused:false,endTs:null,remainMs:null};}}}});}catch(_){}}
+    function load(){try{const raw=localStorage.getItem(STORE_KEY);if(!raw)return;const data=JSON.parse(raw);activeIdx=data.activeIdx||0;data.enclos.forEach((d,i)=>{if(!enclos[i])return;enclos[i].fuel=d.fuel||'';enclos[i].dirMode=d.dirMode||(d.dirUp!==undefined?(d.dirUp?'up':'down'):'none');enclos[i].serenMin=d.serenMin||'';enclos[i].serenMax=d.serenMax||'';enclos[i].stats=d.stats||[];enclos[i].statVals=d.statVals||{endurance:0,maturite:0,amour:0,xp:0};enclos[i].totalSec=d.totalSec||0;if(d.tmr){enclos[i].tmr={running:!!d.tmr.running,paused:!!d.tmr.paused,endTs:d.tmr.endTs||null,remainMs:d.tmr.remainMs||null};if(enclos[i].tmr.running){const fuel=clamp(parseInt(enclos[i].fuel)||0,0,100000);enclos[i].snap={mn:parseInt(enclos[i].serenMin)||0,mx:parseInt(enclos[i].serenMax)||0,initialFuel:fuel,speed:tierInfo(fuel).speed,totalMs:enclos[i].totalSec*1000,startTs:enclos[i].tmr.paused?Date.now():(enclos[i].tmr.endTs-enclos[i].totalSec*1000)};if(!enclos[i].tmr.paused&&enclos[i].tmr.endTs&&Date.now()>=enclos[i].tmr.endTs){enclos[i].tmr={running:false,paused:false,endTs:null,remainMs:null};}}}});}catch(_){}}
 
     load();buildTabs();loadForm(activeIdx);
     enclos.forEach((e,i)=>{if(e.tmr.running){const rem=e.tmr.paused?(e.tmr.remainMs||0):Math.max(0,(e.tmr.endTs||0)-Date.now());updBadge(i,rem);}});
