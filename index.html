@@ -373,11 +373,11 @@
       <div class="field">
         <label class="field-label">Objets Sérénité (Optionnel)</label>
         <div class="dir-group">
-          <button type="button" class="dir-btn" id="btn-up">📈 Caresseur (Sérénité +)</button>
           <button type="button" class="dir-btn" id="btn-down">📉 Baffeur (Sérénité -)</button>
+          <button type="button" class="dir-btn" id="btn-up">📈 Caresseur (Sérénité +)</button>
         </div>
       </div>
-      <div class="field">
+      <div class="field" id="field-seren" style="display:none;">
         <label class="field-label">Sérénité du troupeau</label>
         <div class="field-row">
           <input type="number" id="seren-min" class="input" min="-5000" max="5000" placeholder="Min" />
@@ -399,7 +399,7 @@
       </div>
     </section>
 
-    <section class="card" id="card-gauge" style="border-radius:var(--radius-lg);">
+    <section class="card" id="card-gauge" style="border-radius:var(--radius-lg); display:none;">
       <h2 class="card-title">📊 <em>Jauge</em> de sérénité</h2>
       <div class="gauge-outer">
         <div class="stat-labels">
@@ -477,6 +477,15 @@
 
     function getDirModeFromUI(){return btnUp.classList.contains('on-up')?'up':(btnDown.classList.contains('on-down')?'down':'none');}
 
+    function updSerenVisibility(){
+      const dirMode=getDirModeFromUI();
+      const showSeren=(dirMode!=='none');
+      const fieldSeren=$('#field-seren');
+      const cardGauge=$('#card-gauge');
+      if(fieldSeren)fieldSeren.style.display=showSeren?'block':'none';
+      if(cardGauge)cardGauge.style.display=showSeren?'block':'none';
+    }
+
     function saveForm(idx){const e=enclos[idx];e.fuel=fuelIn.value;e.dirMode=getDirModeFromUI();e.serenMin=serenMinIn.value;e.serenMax=serenMaxIn.value;e.stats=[];statBtns.forEach(b=>{if(b.classList.contains('on-'+b.dataset.stat))e.stats.push(b.dataset.stat);});}
 
     function updStatHint(){if(!statHint)return;if(btnUp.classList.contains('on-up')){statHint.textContent='📈 Caresseur actif (Sérénité +) → max 1 autre stat sélectionnable';}else if(btnDown.classList.contains('on-down')){statHint.textContent='📉 Baffeur actif (Sérénité -) → max 1 autre stat sélectionnable';}else{statHint.textContent='⚡ Aucun objet sérénité actif → max 2 stats sélectionnables';}}
@@ -508,8 +517,8 @@
           <div style="background:var(--bg-card-raised); border:1px solid var(--border); border-radius:var(--radius-sm); padding:8px 10px;">
             <div style="font-size:0.65rem; font-weight:700; color:${m.color}; margin-bottom:4px; text-transform:uppercase;">${m.label}</div>
             <div style="display:flex; align-items:center; gap:8px;">
-              <input type="number" class="input stat-val-input" data-stat="${s}" min="0" max="10000" placeholder="0 – 10 000" value="${val}" style="padding:6px 10px; font-size:0.85rem;" />
-              <span style="font-size:0.7rem; font-weight:700; color:var(--text-muted); white-space:nowrap;">/ 10 000</span>
+              <input type="number" class="input stat-val-input" data-stat="${s}" min="0" max="20000" placeholder="0 – 20 000" value="${val}" style="padding:6px 10px; font-size:0.85rem;" />
+              <span style="font-size:0.7rem; font-weight:700; color:var(--text-muted); white-space:nowrap;">/ 20 000</span>
             </div>
           </div>
         `;
@@ -518,7 +527,7 @@
       statInputsBox.querySelectorAll('.stat-val-input').forEach(inp=>{
         inp.addEventListener('input',evt=>{
           const st=evt.target.dataset.stat;
-          const v=Math.max(0,Math.min(10000,parseInt(evt.target.value)||0));
+          const v=Math.max(0,Math.min(20000,parseInt(evt.target.value)||0));
           enclos[activeIdx].statVals[st]=v;
           calcE(activeIdx);
           save();
@@ -526,15 +535,64 @@
       });
     }
 
-    function loadForm(idx){const e=enclos[idx];fuelIn.value=e.fuel;serenMinIn.value=e.serenMin;serenMaxIn.value=e.serenMax;btnUp.classList.toggle('on-up',e.dirMode==='up');btnDown.classList.toggle('on-down',e.dirMode==='down');statBtns.forEach(b=>b.classList.remove('on-endurance','on-maturite','on-amour','on-xp'));(e.stats||[]).forEach(s=>{const b=document.querySelector(`.stat-btn[data-stat="${s}"]`);if(b)b.classList.add('on-'+s);});updStatHint();renderStatInputs();updFuelUI();updMarkers();calcE(idx);updTimerUI(idx);}
+    function loadForm(idx){const e=enclos[idx];fuelIn.value=e.fuel;serenMinIn.value=e.serenMin;serenMaxIn.value=e.serenMax;btnUp.classList.toggle('on-up',e.dirMode==='up');btnDown.classList.toggle('on-down',e.dirMode==='down');statBtns.forEach(b=>b.classList.remove('on-endurance','on-maturite','on-amour','on-xp'));(e.stats||[]).forEach(s=>{const b=document.querySelector(`.stat-btn[data-stat="${s}"]`);if(b)b.classList.add('on-'+s);});updSerenVisibility();updStatHint();renderStatInputs();updFuelUI();updMarkers();calcE(idx,true);updTimerUI(idx);}
 
     function updFuelUI(customFuel){const f=clamp(customFuel!==undefined?customFuel:(parseInt(fuelIn.value)||0),0,100000),info=tierInfo(f);fuelFill.style.width=(f/100000*100)+'%';fuelFill.className='fuel-fill '+info.css;speedChip.className='speed-chip '+info.css;speedText.textContent=`±${info.speed} / 10s`;tierNameEl.textContent=info.name;document.querySelectorAll('.fuel-ticks span').forEach((el,i)=>{el.classList.toggle('active',f>=[0,40000,70000,90000,100000][i]);});}
 
     function updMarkers(mnO,mxO){const mn=mnO!==undefined?mnO:clamp(parseInt(serenMinIn.value)||-5000,-5000,5000),mx=mxO!==undefined?mxO:clamp(parseInt(serenMaxIn.value)||5000,-5000,5000);mkMin.style.left=pct(mn)+'%';mkMax.style.left=pct(mx)+'%';mkMin.querySelector('.mk-pip').textContent=`Min ${mn}`;mkMax.querySelector('.mk-pip').textContent=`Max ${mx}`;const mnV=mnO!==undefined?mnO:parseInt(serenMinIn.value),mxV=mxO!==undefined?mxO:parseInt(serenMaxIn.value);if(!isNaN(mnV)&&!isNaN(mxV)&&mnV<=mxV&&mnV>=-5000&&mxV<=5000){hatchEl.style.left=pct(mnV)+'%';hatchEl.style.width=(pct(mxV)-pct(mnV))+'%';hatchEl.classList.add('visible');}else{hatchEl.classList.remove('visible');}}
 
-    function validate(){const mn=parseInt(serenMinIn.value),mx=parseInt(serenMaxIn.value),f=parseInt(fuelIn.value);const mnOk=!isNaN(mn)&&mn>=-5000&&mn<=5000,mxOk=!isNaN(mx)&&mx>=-5000&&mx<=5000,fOk=!isNaN(f)&&f>=0&&f<=100000,ordOk=!mnOk||!mxOk||mn<=mx;errMM.classList.toggle('visible',mnOk&&mxOk&&!ordOk);return mnOk&&mxOk&&fOk&&ordOk;}
+    function validate(){
+      const f=parseInt(fuelIn.value);
+      const fOk=!isNaN(f)&&f>=0&&f<=100000;
+      const dirMode=getDirModeFromUI();
+      if(dirMode!=='none'){
+        const mn=parseInt(serenMinIn.value),mx=parseInt(serenMaxIn.value);
+        const mnOk=!isNaN(mn)&&mn>=-5000&&mn<=5000;
+        const mxOk=!isNaN(mx)&&mx>=-5000&&mx<=5000;
+        const ordOk=!mnOk||!mxOk||mn<=mx;
+        errMM.classList.toggle('visible',mnOk&&mxOk&&!ordOk);
+        return fOk&&mnOk&&mxOk&&ordOk;
+      }
+      errMM.classList.remove('visible');
+      return fOk;
+    }
 
-    function calcE(idx){
+    function autoStartOrUpdateTimer(idx){
+      const e=enclos[idx];
+      if(e.totalSec<=0){
+        if(e.tmr.running)stopE(idx);
+        return;
+      }
+      if(!e.tmr.running){
+        startE(idx);
+      }else if(!e.tmr.paused){
+        const f=clamp(parseInt(fuelIn.value)||0,0,100000);
+        e.snap.initialFuel=f;
+        e.snap.speed=tierInfo(f).speed;
+        e.snap.totalMs=e.totalSec*1000;
+        e.snap.startTs=Date.now();
+        e.tmr.endTs=Date.now()+e.totalSec*1000;
+        if(idx===activeIdx){
+          resTime.textContent=fmt(e.totalSec);
+          resEnd.textContent=fmtEnd(new Date(e.tmr.endTs));
+          resTics.textContent=Math.ceil(e.totalSec/10);
+          updTimerUI(idx);
+        }
+        updBadge(idx,e.totalSec*1000);
+      }else{
+        e.tmr.remainMs=e.totalSec*1000;
+        e.snap.totalMs=e.totalSec*1000;
+        if(idx===activeIdx){
+          resTime.textContent=fmt(e.totalSec);
+          resEnd.textContent=fmtEnd(new Date(Date.now()+e.tmr.remainMs));
+          timerVal.textContent=fmt(e.totalSec);
+          updTimerUI(idx);
+        }
+        updBadge(idx,e.tmr.remainMs);
+      }
+    }
+
+    function calcE(idx, skipAutoStart){
       const e=enclos[idx];
       if(!validate()){resetRes(idx);return;}
       const fuel=clamp(parseInt(fuelIn.value)||0,0,100000),mn=parseInt(serenMinIn.value),mx=parseInt(serenMaxIn.value);
@@ -545,7 +603,6 @@
           const needSeren=-2000-mn;
           const tics=calcTicksWithFuel(needSeren,fuel);
           if(tics>maxTicks)maxTicks=tics;
-          const speedStart=tierInfo(fuel).speed;
           const approxMax=mx+(needSeren);
           if(!isNaN(mx)&&approxMax>2000){showW=true;wMsg=`Sérénité max → ${approxMax>5000?'>5000':approxMax} pts (hors zone).`;}
         }
@@ -562,7 +619,7 @@
       if(!e.statVals)e.statVals={endurance:0,maturite:0,amour:0,xp:0};
       (e.stats||[]).forEach(s=>{
         const curV=e.statVals[s]!==undefined?e.statVals[s]:0;
-        const needPts=10000-curV;
+        const needPts=20000-curV;
         if(needPts>0){
           const tics=calcTicksWithFuel(needPts,fuel);
           if(tics>maxTicks)maxTicks=tics;
@@ -576,20 +633,16 @@
           resTime.textContent=fmt(e.totalSec);
           resTics.textContent=maxTicks;
           resEnd.textContent=fmtEnd(end);
-          if(!e.tmr.running)timerVal.textContent=fmt(e.totalSec);
-          btnPlay.disabled=e.tmr.running;
         }
+        if(!skipAutoStart) autoStartOrUpdateTimer(idx);
       }else{
         e.totalSec=0;
         if(idx===activeIdx){
           resTime.textContent='00:00:00';
           resTics.textContent='0';
           resEnd.textContent='—';
-          if(!e.tmr.running){
-            timerVal.textContent='00:00:00';
-            btnPlay.disabled=true;
-          }
         }
+        if(e.tmr.running && !skipAutoStart) stopE(idx);
       }
       if(idx===activeIdx){
         warnBan.classList.toggle('visible',showW);
@@ -634,8 +687,8 @@
     function onInput(){saveForm(activeIdx);updFuelUI();updMarkers();calcE(activeIdx);save();}
     fuelIn.addEventListener('input',onInput);serenMinIn.addEventListener('input',onInput);serenMaxIn.addEventListener('input',onInput);
     
-    btnUp.addEventListener('click',()=>{if(btnUp.classList.contains('on-up')){btnUp.classList.remove('on-up');enclos[activeIdx].dirMode='none';}else{btnUp.classList.add('on-up');btnDown.classList.remove('on-down');enclos[activeIdx].dirMode='up';enforceStatLimit(1);}saveForm(activeIdx);updStatHint();renderStatInputs();calcE(activeIdx);save();});
-    btnDown.addEventListener('click',()=>{if(btnDown.classList.contains('on-down')){btnDown.classList.remove('on-down');enclos[activeIdx].dirMode='none';}else{btnDown.classList.add('on-down');btnUp.classList.remove('on-up');enclos[activeIdx].dirMode='down';enforceStatLimit(1);}saveForm(activeIdx);updStatHint();renderStatInputs();calcE(activeIdx);save();});
+    btnUp.addEventListener('click',()=>{if(btnUp.classList.contains('on-up')){btnUp.classList.remove('on-up');enclos[activeIdx].dirMode='none';}else{btnUp.classList.add('on-up');btnDown.classList.remove('on-down');enclos[activeIdx].dirMode='up';enforceStatLimit(1);}saveForm(activeIdx);updSerenVisibility();updStatHint();renderStatInputs();calcE(activeIdx);save();});
+    btnDown.addEventListener('click',()=>{if(btnDown.classList.contains('on-down')){btnDown.classList.remove('on-down');enclos[activeIdx].dirMode='none';}else{btnDown.classList.add('on-down');btnUp.classList.remove('on-up');enclos[activeIdx].dirMode='down';enforceStatLimit(1);}saveForm(activeIdx);updSerenVisibility();updStatHint();renderStatInputs();calcE(activeIdx);save();});
     
     statBtns.forEach(b=>b.addEventListener('click',()=>{toggleStat(b);saveForm(activeIdx);renderStatInputs();calcE(activeIdx);save();}));
     btnPlay.addEventListener('click',()=>startE(activeIdx));
